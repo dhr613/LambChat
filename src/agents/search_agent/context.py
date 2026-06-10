@@ -144,29 +144,34 @@ class SearchAgentContext:
             f"[SearchAgentContext] Starting setup, ENABLE_SKILLS={settings.ENABLE_SKILLS}, ENABLE_MCP={settings.ENABLE_MCP}"
         )
 
-        # 基础工具
+        # 获取用户指定的工具
         human_tool = get_human_tool(session_id=self.session_id)
         self.tools.append(human_tool)
         logger.info("[SearchAgentContext] Added human tool")
 
+        # 获取文件读取工具，这个工具将会向用户推荐打开的文件
         reveal_file_tool = get_reveal_file_tool()
         self.tools.append(reveal_file_tool)
         logger.info("[SearchAgentContext] Added reveal_file tool")
 
+        # 获取项目读取工具，这个工具将会向用户展示生成的项目
         reveal_project_tool = get_reveal_project_tool()
         self.tools.append(reveal_project_tool)
         logger.info("[SearchAgentContext] Added reveal_project tool")
 
+        # 获取文件转移工具， - 从沙箱转移生成的代码到技能目录 - 从技能目录复制文件到沙箱工作区
         transfer_file_tool = get_transfer_file_tool()
         self.tools.append(transfer_file_tool)
         logger.info("[SearchAgentContext] Added transfer_file tool")
 
+        # 获取目录转移工具， - 从沙箱目录批量创建 skill（如 /home/user/my-skill/ → /skills/my-skill/） - 将 skill 文件批量复制到沙箱工作区（如 /skills/MySkill/ → /home/user/MySkill/）
         transfer_path_tool = get_transfer_path_tool()
         self.tools.append(transfer_path_tool)
         logger.info("[SearchAgentContext] Added transfer_path tool")
 
         from src.infra.tool.env_var_tool import get_env_var_tools
 
+        # 获取操作环境变量的工具：env_var_list, env_var_set, env_var_delete, env_var_delete_all
         env_var_tools = get_env_var_tools()
         self.tools.extend(env_var_tools)
         logger.info(f"[SearchAgentContext] Added {len(env_var_tools)} env var tools")
@@ -174,6 +179,7 @@ class SearchAgentContext:
         # Memory 工具（统一接口，自动选择 Hindsight 或 memU 后端）
         if settings.ENABLE_MEMORY:
             try:
+                # 获取记忆工具：memory_retain, memory_recall, memory_delete, memory_consolidate
                 from src.infra.memory.tools import get_all_memory_tools
 
                 memory_tools = get_all_memory_tools()
@@ -189,9 +195,11 @@ class SearchAgentContext:
             from src.infra.tool.sandbox_mcp_tool import get_sandbox_mcp_tools
             from src.infra.tool.upload_url_tool import get_upload_url_tool
 
+            # 获取上传文件到沙箱的工具
             self.tools.append(get_upload_url_tool())
             logger.info("[SearchAgentContext] Added upload_url_to_sandbox tool (sandbox mode)")
 
+            # 获取沙箱专属的mcp工具
             self.tools.extend(get_sandbox_mcp_tools())
             logger.info("[SearchAgentContext] Added sandbox_mcp tools (sandbox mode)")
 
@@ -205,7 +213,7 @@ class SearchAgentContext:
                 self.skill_files = skill_result["files"]
                 self.skills = skill_result["skills"]
 
-                # Filter skills by disabled_skills blacklist if provided
+                # 筛选掉禁止使用的skills
                 if self.disabled_skills:
                     disabled_set = set(self.disabled_skills)
                     self.skills = [s for s in self.skills if s.get("name") not in disabled_set]

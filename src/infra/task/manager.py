@@ -112,7 +112,7 @@ class BackgroundTaskManager:
         # 生成 run_id
         run_id = run_id or _generate_run_id()
 
-        async with self._lock:
+        async with self._lock:# 异步锁
             # 确保 session 记录存在
             await self._executor.ensure_session(
                 session_id,

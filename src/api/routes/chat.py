@@ -87,7 +87,7 @@ async def _execute_agent_stream(
         raise
 
 
-# Register the default agent-stream executor so any worker can dispatch queued tasks
+# 注册默认的 agent-stream 执行器，以便任何工作节点都能分发队列中的任务
 register_executor("agent_stream", _execute_agent_stream)
 
 
@@ -117,27 +117,25 @@ async def chat_stream(
     from src.infra.task.concurrency import ConcurrencyResult, get_concurrency_limiter
     from src.infra.task.manager import _generate_run_id
 
+    # 获取当前会话的id或生成一个随机的id
     session_id = request.session_id or str(uuid.uuid4())
 
-    # 如果用户传入了 session_id，验证所有权
+    # 如果用户传入了 session_id，验证该会话id的所有权（该数据是储存在mongoDB中的），避免被其他用户调用
     if request.session_id:
         session_manager = SessionManager()
         existing_session = await session_manager.get_session(session_id)
         if existing_session:
             verify_session_ownership(existing_session, user)
 
-    task_manager = get_task_manager()
-
     # 生成 run_id（不管是否排队都需要唯一 ID）
     run_id = _generate_run_id()
 
-    # Prepare attachments (needed for both queued and direct paths)
+    # 准备附件信息（附件信息是上传的文档信息）
     attachments_data = (
         [a.model_dump() for a in request.attachments] if request.attachments else None
     )
 
-    # Build task context for queued dispatch (stored in Redis, multi-worker safe)
-    # trace_id is generated early so it can be passed to the executor for trace reuse
+    # 提前生成一个presenter来获取一个train_id（由时间戳与uuid组成）
     from src.infra.writer.present import Presenter, PresenterConfig
 
     _pre_presenter = Presenter(
@@ -167,14 +165,17 @@ async def chat_stream(
     # 检查并发限制
     limiter = get_concurrency_limiter()
     concurrency_result = await limiter.acquire(
-        user_id=user.sub,
-        roles=user.roles,
-        run_id=run_id,
-        session_id=session_id,
-        task_context=task_context,
+        user_id=user.sub,# 用户id
+        roles=user.roles,# 该用户允许的角色列表
+        run_id=run_id,# run_id，以时间戳与uuid拼接而成的id
+        session_id=session_id,# 会话id，直接传递或由uuid随机生成
+        task_context=task_context,# 当前对话任务的上下文信息
     )
-
-    if concurrency_result.result == ConcurrencyResult.REJECTED_QUEUE:
+    # ConcurrencyResult有三种属性：started,queued,rejected_queue
+    # 如果结果为rejected_queue，则表示排队已满
+    # 如果结果为queued，则表示排队中
+    # 如果结果为started，则表示已经开始
+    if concurrency_result.result == ConcurrencyResult.REJECTED_QUEUE: # 如果此时排队已满
         raise HTTPException(
             status_code=429,
             detail={
@@ -186,24 +187,29 @@ async def chat_stream(
             },
         )
 
+    task_manager = get_task_manager()
+
+    # 如果当前任务的状态为排队中
     if concurrency_result.result == ConcurrencyResult.QUEUED:
-        # Task context already stored in Redis queue entry by acquire().
-        # Ensure executor is initialized and create session immediately.
+        # 此时任务上下文已经存储在Redis排队队列中
+        # 确保执行器已初始化并立即创建会话
         if task_manager._executor is None:
             from src.infra.task.executor import TaskExecutor
 
             task_manager._executor = TaskExecutor(
                 task_manager.storage, task_manager._run_info, task_manager._heartbeat
             )
-        # Create session record immediately (don't wait for dequeue)
+
+        # 确保会话id存在，如果不存在则创建
         await task_manager._executor.ensure_session(
             session_id, agent_id, user.sub, project_id=request.project_id
         )
+        # 更新会话的状态为pending
         await task_manager._executor._update_session_status(
             session_id, TaskStatus.PENDING, run_id=run_id
         )
 
-        # Write user:message event to MongoDB immediately so page refresh can load it
+        # 立即写入用户消息事件到MongoDB，以便页面刷新可以加载它
         presenter = Presenter(
             PresenterConfig(
                 session_id=session_id,
@@ -214,6 +220,7 @@ async def chat_stream(
                 enable_storage=True,
             )
         )
+        
         await presenter._ensure_trace()
         await presenter.emit_user_message(
             request.message,
@@ -244,18 +251,18 @@ async def chat_stream(
 
     # STARTED — 正常提交后台任务
     _, _ = await task_manager.submit(
-        session_id=session_id,
-        agent_id=agent_id,
-        message=request.message,
-        user_id=user.sub,
-        executor=_execute_agent_stream,
-        disabled_tools=request.disabled_tools,
-        agent_options=request.agent_options,
-        attachments=attachments_data,
-        run_id=run_id,
-        project_id=request.project_id,
-        disabled_skills=request.disabled_skills,
-        disabled_mcp_tools=request.disabled_mcp_tools,
+        session_id=session_id,# 会话id
+        agent_id=agent_id,# 智能体id
+        message=request.message,# 用户请求的消息
+        user_id=user.sub,# 用户id
+        executor=_execute_agent_stream,# 智能体流式执行组件
+        disabled_tools=request.disabled_tools,# 禁用的工具列表
+        agent_options=request.agent_options,# 智能体选项
+        attachments=attachments_data,# 文件附件列表
+        run_id=run_id,# 运行id
+        project_id=request.project_id,# 项目id
+        disabled_skills=request.disabled_skills,# 禁用的技能列表
+        disabled_mcp_tools=request.disabled_mcp_tools,# 禁用的MCP工具列表
     )
 
     # 更新 session metadata，存储完整的对话配置

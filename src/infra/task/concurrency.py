@@ -96,10 +96,10 @@ class UserConcurrencyLimiter:
         return f"chat:queue:{user_id}"
 
     async def get_user_limits(self, roles: list[str]) -> Tuple[Optional[int], Optional[int]]:
-        """Get effective concurrency limits from user's roles (most permissive wins).
+        """根据用户的角色来获取对应的最大并发数和最大排队数
 
         Returns:
-            (max_concurrent, max_queued) — None means unlimited
+            (max_concurrent, max_queued) — None 表示无限制
         """
         from src.infra.role.storage import RoleStorage
 
@@ -108,12 +108,12 @@ class UserConcurrencyLimiter:
 
         try:
             role_storage = RoleStorage()
-            # Single batch query instead of N individual lookups
+            # 从redis中获取对应user的所有role信息，主要是该角色对应的并发数和排队数
             user_roles = await role_storage.get_by_names(roles)
             for role in user_roles:
                 if role.limits:
-                    rc = role.limits.max_concurrent_chats
-                    rq = role.limits.max_queued_chats
+                    rc = role.limits.max_concurrent_chats# 最大并发数（同时进行的对话数）
+                    rq = role.limits.max_queued_chats# 最大排队数
                     if rc is not None:
                         max_concurrent = rc if max_concurrent is None else max(max_concurrent, rc)
                     if rq is not None:
@@ -129,6 +129,7 @@ class UserConcurrencyLimiter:
         """Count tasks with recent heartbeats (excludes crashed workers)."""
         try:
             cutoff = time.time() - HEARTBEAT_TIMEOUT
+            # 统计该用户在当前时间之前60s内的任务数
             return await self.redis.zcount(self._active_key(user_id), cutoff, "+inf")
         except Exception as e:
             logger.warning(f"Failed to get active count: {e}")
@@ -153,21 +154,23 @@ class UserConcurrencyLimiter:
         task_context: Optional[Dict[str, Any]] = None,
     ) -> ConcurrencyResponse:
         """Try to acquire a concurrency slot for a task."""
+        # 尝试获取该角色对应的并发数和队列数
         try:
             max_concurrent, max_queued = await self.get_user_limits(roles)
 
-            # No limit configured — allow immediately
+            # 如果对最大并发没有限制，则允许立即开始，即将result置为started
             if max_concurrent is None:
                 return ConcurrencyResponse(result=ConcurrencyResult.STARTED)
 
-            # Cleanup stale entries first (crashed workers)
+            # 清除已崩溃的工作进程（最后一次心跳在60s之前的任务）
             await self._cleanup_stale_active(user_id)
 
-            # Check current active count (only entries with recent heartbeats)
+            # 检查当前用户的活跃计数（即在60s之内活跃的对话数）
             active_count = await self._get_active_count(user_id)
 
+            # 如果当前活跃的对话数小于最大并发数，则任务可以继续，即将result置为started
             if active_count < max_concurrent:
-                # Slot available — add to sorted set with current timestamp
+                # 有空闲的并发数，将任务添加到活跃队列中（run_id: time.time()表示任务的开始时间）
                 await self.redis.zadd(
                     self._active_key(user_id),
                     {run_id: time.time()},
@@ -178,10 +181,10 @@ class UserConcurrencyLimiter:
                     active_count=active_count + 1,
                 )
 
-            # Active limit reached — try to queue
+            # 如果最大队列数存在且大于当前队列的长度，则报错
             if max_queued is not None:
-                queue_length = await self.redis.llen(self._queue_key(user_id))
-                if queue_length >= max_queued:
+                queue_length = await self.redis.llen(self._queue_key(user_id))# 获取当前排队数
+                if queue_length >= max_queued:# 如果当前排队数大于等于最大排队数，则拒绝排队，即将result置为rejected_queue
                     return ConcurrencyResponse(
                         result=ConcurrencyResult.REJECTED_QUEUE,
                         max_concurrent=max_concurrent,
@@ -189,7 +192,7 @@ class UserConcurrencyLimiter:
                         queue_length=queue_length,
                     )
 
-            # Add to queue with full context and timestamp for timeout cleanup
+            # 如果当前需要排队
             entry = json.dumps(
                 {
                     "run_id": run_id,
@@ -199,8 +202,10 @@ class UserConcurrencyLimiter:
                     "task_context": task_context or {},
                 }
             )
+            # 添加到排队队列
             await self.redis.rpush(self._queue_key(user_id), entry)
 
+            # 获取当前队列长度
             queue_length = await self.redis.llen(self._queue_key(user_id))
             logger.info(
                 f"Task queued: user={user_id}, run={run_id}, position={queue_length}, "

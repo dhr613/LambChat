@@ -129,6 +129,7 @@ class SearchAgent(BaseGraphAgent):
         2. 执行 graph
         3. yield done/error
         """
+        # 初始化图，将会得到一个编译好的图：self._graph
         if not self._initialized:
             await self.initialize()
 
@@ -147,9 +148,11 @@ class SearchAgent(BaseGraphAgent):
             )
 
         # 创建并初始化 SearchAgentContext
-        disabled_tools = kwargs.get("disabled_tools")
-        disabled_skills = kwargs.get("disabled_skills")
-        disabled_mcp_tools = kwargs.get("disabled_mcp_tools")
+        disabled_tools = kwargs.get("disabled_tools")# 禁止使用的工具
+        disabled_skills = kwargs.get("disabled_skills")# 禁止使用的skills
+        disabled_mcp_tools = kwargs.get("disabled_mcp_tools")# 禁止使用的mcp工具
+
+        # 返回上下文实例
         context = SearchAgentContext(
             session_id=session_id,
             agent_id=self.agent_id,
@@ -158,7 +161,7 @@ class SearchAgent(BaseGraphAgent):
             disabled_skills=disabled_skills,
             disabled_mcp_tools=disabled_mcp_tools,
         )
-        await context.setup()
+        await context.setup()# 加载工具和技能
 
         # 发送 metadata
         yield presenter.metadata()
@@ -181,10 +184,12 @@ class SearchAgent(BaseGraphAgent):
             "recursion_limit": settings.SESSION_MAX_RUNS_PER_SESSION,
         }
 
-        # 初始状态
+        # 获取附件
         attachments = kwargs.get("attachments", [])
+
+        # 初始化状态
         initial_state = {
-            "input": message,
+            "input": message,# 用户输入
             "session_id": session_id,
             "messages": [],  # 历史消息由 agent_node 内部的 deep_agent 管理
             "output": "",

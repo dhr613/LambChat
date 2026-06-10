@@ -177,6 +177,8 @@ class RoleStorage:
     async def get_by_name(self, name: str) -> Optional[Role]:
         """
         通过名称获取角色（带 Redis 缓存）
+        先尝试从redis中获取缓存，如果没有，则尝试从数据库中进行搜索
+        不论哪种方式都会更新redis中的缓存信息
 
         Args:
             name: 角色名称

@@ -39,7 +39,7 @@ class TaskExecutor:
         初始化任务执行器
 
         Args:
-            storage: Session 存储实例
+            storage: Session 存储实例（MongoDB）
             run_info: 运行信息字典 run_id -> {session_id, trace_id, agent_id}
             heartbeat_manager: 心跳管理器实例
         """
@@ -70,6 +70,7 @@ class TaskExecutor:
         dual_writer = None
 
         try:
+            # 更新会话状态为running
             await self._update_session_status(session_id, TaskStatus.RUNNING, run_id=run_id)
 
             # 启动心跳（传入 user_id 以刷新并发限制条目）

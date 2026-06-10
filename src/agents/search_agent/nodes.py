@@ -64,8 +64,11 @@ async def agent_node(state: Dict[str, Any], config: RunnableConfig) -> Dict[str,
     """
     start_time = time.time()
 
+    # 初始化presenter
     presenter = get_presenter(config)
     configurable = config.get("configurable", {})
+
+    # 获取SearchAgent的上下文配置
     context: SearchAgentContext = configurable.get("context", SearchAgentContext())
 
     # 获取 agent_options

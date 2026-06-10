@@ -31,12 +31,10 @@ logger = get_logger(__name__)
 
 class AgentEventProcessor(SubagentEventMixin, StreamEventMixin, ToolEventMixin):
     """
-    Process DeepAgent stream events and forward presenter-ready events.
+    处理深度智能体流式事件，并转发可供展示层使用的事件。
 
-    The processor is session-scoped. Call `flush()` before reading final output,
-    and call `clear()` or `finalize()` when the session is no longer needed.
-    Token counters are intentionally retained after `clear()` for existing
-    callers that emit usage after stream cleanup.
+    该处理器为会话级作用域。读取最终输出前需调用flush()；会话不再使用时，调用clear()或finalize()完成收尾。
+    为适配流式清理后仍需上报用量数据的现有调用逻辑，token计数数据在执行clear()后会保留。
     """
 
     __slots__ = (
@@ -101,11 +99,11 @@ class AgentEventProcessor(SubagentEventMixin, StreamEventMixin, ToolEventMixin):
         self._summary_chunk_buffer.clear()
 
     async def process_event(self, event: StreamEvent) -> None:
-        """Process a single LangChain stream event."""
-        evt_type = event.get("event")
-        tool_name = event.get("name", "")
+        """处理单个langchain的流式事件"""
+        evt_type = event.get("event")# 获取当前事件的类型
+        tool_name = event.get("name", "") # 尝试获取当前事件的name（如果此时是在调用工具，name则为当前工具的名称）
 
-        if tool_name == TOOL_TASK:
+        if tool_name == TOOL_TASK:# TOOL_TASK='task'
             match evt_type:
                 case "on_tool_start":
                     await self._handle_task_start(event)

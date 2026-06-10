@@ -99,12 +99,12 @@ class UserInDB(User):
 class TokenPayload(BaseModel):
     """JWT Token payload."""
 
-    sub: str  # user_id
-    username: str
-    roles: List[str] = Field(default_factory=list)
-    permissions: List[str] = Field(default_factory=list)
-    exp: Optional[datetime] = None
-    iat: Optional[datetime] = None
+    sub: str  # 用户id
+    username: str # 用户名
+    roles: List[str] = Field(default_factory=list) # 该用户允许的角色列表
+    permissions: List[str] = Field(default_factory=list) # 用户权限
+    exp: Optional[datetime] = None # 令牌的过期时间
+    iat: Optional[datetime] = None # 令牌的创建时间
 
 
 class Token(BaseModel):

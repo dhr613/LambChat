@@ -44,6 +44,7 @@ class SubagentEventMixin:
         )
         return None, 1
 
+    # 处理工具调用的开始事件
     async def _handle_task_start(self, event: StreamEvent) -> None:
         data = event.get("data", {})
         inp: dict[str, Any] = data.get("input", {})
